@@ -31,7 +31,13 @@ opt_check_iup()
 
 	IUP_CFLAGS=$(run_pkg_config iup --cflags 2>/dev/null)
 	if [ "$enable_iup_static" = "yes" ] ; then
-		IUP_LIBS=$(run_pkg_config iup --static --libs 2>/dev/null)
+		iup_pcfiledir=$(run_pkg_config iup --variable=pcfiledir 2>/dev/null)
+		iup_libs_private=$(sed -n 's/^Libs\.private://p' "$iup_pcfiledir/iup.pc")
+		IUP_LIBS="$(run_pkg_config iup --libs 2>/dev/null) $iup_libs_private"
+		iup_requires=$(run_pkg_config iup --print-requires-private 2>/dev/null)
+		if [ -n "$iup_requires" ] ; then
+			IUP_LIBS="$IUP_LIBS $(run_pkg_config $iup_requires --libs 2>/dev/null)"
+		fi
 	else
 		IUP_LIBS=$(run_pkg_config iup --libs 2>/dev/null)
 	fi
