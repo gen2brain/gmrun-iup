@@ -35,13 +35,6 @@ TabTimeout = 0
 SHELL_RUN = 1
 
 
-# use GLib XDG handling? (freedesktop specification)
-USE_GLIB_XDG = 0
-
-#=======================================================================
-# USE_GLIB_XDG = 0, you can specify URL and extension Handlers...
-#=======================================================================
-
 # URL handlers
 # If the entered text is "http://www.google.com" then:
 #   - %u gets replaced with the whole URL ("http://www.google.com")
