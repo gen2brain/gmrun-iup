@@ -1,0 +1,61 @@
+on: [push, pull_request]
+name: Build
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - driver: gtk3
+          deps: libgtk-3-dev
+        - driver: gtk4
+          deps: libgtk-4-dev
+        - driver: gtk2
+          deps: libgtk2.0-dev
+        - driver: qt6
+          deps: qt6-base-dev
+        - driver: qt5
+          deps: qtbase5-dev
+        - driver: motif
+          deps: libmotif-dev libxmu-dev libxpm-dev
+        - driver: efl
+          deps: libefl-all-dev
+        - driver: fltk
+          deps: libx11-dev libxft-dev libxext-dev libxrender-dev libxcursor-dev libxfixes-dev libxinerama-dev libpng-dev libjpeg-dev zlib1g-dev libwayland-dev wayland-protocols libxkbcommon-dev libdecor-0-dev libpango1.0-dev libcairo2-dev
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Checkout IUP
+      uses: actions/checkout@v4
+      with:
+        repository: gen2brain/iup-go
+        path: iup-go
+    - name: Install dependencies
+      run: sudo apt-get update -y && sudo apt-get install -y cmake pkg-config ${{ matrix.deps }}
+    - name: Build FLTK
+      if: matrix.driver == 'fltk'
+      run: |
+        git clone --depth 1 --branch release-1.4.4 https://github.com/fltk/fltk.git /tmp/fltk-src
+        cmake -S /tmp/fltk-src -B /tmp/fltk-build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DFLTK_BUILD_FLUID=OFF \
+          -DFLTK_BUILD_FLTK_OPTIONS=OFF \
+          -DFLTK_BUILD_TEST=OFF \
+          -DFLTK_BUILD_EXAMPLES=OFF \
+          -DFLTK_BUILD_FORMS=OFF \
+          -DFLTK_BUILD_GL=OFF
+        cmake --build /tmp/fltk-build --parallel
+        sudo cmake --install /tmp/fltk-build
+    - name: Build IUP
+      run: |
+        cmake --preset ${{ matrix.driver }}
+        cmake --build build/${{ matrix.driver }} --parallel
+        cmake --install build/${{ matrix.driver }} --prefix $HOME/iup
+      working-directory: iup-go/iup/external
+    - name: Build
+      run: |
+        export PKG_CONFIG_PATH=$(dirname $(find $HOME/iup -name iup.pc | head -1))
+        ./configure --prefix=/usr --sysconfdir=/etc --with-iup-static
+        make
+        make install DESTDIR=$PWD/destdir

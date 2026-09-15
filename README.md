@@ -11,7 +11,7 @@ Features
       turns to emacs, type a SPACE, and write the file you want to open using
       completion).
 
-    * Configuration file: ~/.gmrunrc or /etc/gmrunrc.
+    * Configuration file: ~/.config/gmrunrc or /etc/gmrunrc.
       Check one of them, configuration is very simple. From that file you
       can change window position and width, history size, terminal, URL
       handlers, etc.
@@ -19,7 +19,7 @@ Features
     * CTRL-Enter runs the command in a terminal.
     * CTRL-Enter without any command starts a new terminal.
 
-    * History is maintained in the file "~/.gmrun_history".
+    * History is maintained in the file "~/.local/share/gmrun_history".
 
     * CTRL-R to search backwards through history.
     * CTRL-S to search forward through history.
@@ -39,7 +39,8 @@ Features
 Requirements
 -------------
 
-    * GTK 2/3
+    * IUP (https://github.com/gen2brain/iup-go), built with any of its
+      drivers: GTK 3, GTK 4, GTK 2, Qt 6, Qt 5, Motif, EFL or FLTK
 
 
 Compilation, installation
@@ -49,9 +50,11 @@ Compilation, installation
         make
         make install
 
-    By default it will use the GTK3 ui if it's available.
+    IUP is found with pkg-config. Pass `--with-iup-static` to `./configure`
+    to link the static IUP library.
 
-    Pass `--enable-gtk2` to `./configure` to build the gtk2 ui
+    Pass `--disable-xdg` to `./configure` to use ~/.gmrunrc and
+    ~/.gmrun_history instead of the XDG locations.
 
     Optionally you can configure your window manager to call gmrun
     with WinKey + R or something.
