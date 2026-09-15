@@ -56,19 +56,7 @@ w_finish_func()
 #   ZLIB_CFLAGS =
 #   ZLIB_LIBS   =
 
-GETTEXT_PACKAGE="$PACKAGE"
-. w_conf/gettext
-
-#W_GTK_IS_OPTIONAL=yes
-##--
-#W_GTK_DEFAULT_VERSION=3
-#W_GTK2_MIN_VERSION='2.14'
-#W_GTK3_MIN_VERSION='3.14'
-#W_GTK4_MIN_VERSION=''
-##-- support only 1 version
-#W_GTK_ONLY_VERSION=2
-#W_GTK_MIN_VERSION=2.24
-. w_conf/gtk
+. w_conf/iup
 
 
 # ==============
@@ -78,13 +66,13 @@ extra_configure_opts="$extra_configure_opts gmrun"
 opt_print_gmrun()
 {
 	echo '  --enable-debug          produce debug build'
-	echo '  --enable-xdg            follow xdg spec for configuration and history files location'
+	echo '  --disable-xdg           do not follow xdg spec for configuration and history files location'
 }
 
 opt_configure_gmrun()
 {
 	enable_debug=no
-	enable_xdg=no
+	enable_xdg=yes
 
 	for i in $@
 	do

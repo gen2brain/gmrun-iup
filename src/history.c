@@ -4,19 +4,6 @@
  * For more information, please refer to <https://unlicense.org>
  */
 
-/*
- * - Generic implementation of HistoryFile
- * - Loads history from file. Saves history to file.
- * - Keeps track of the last entry, making it a bit more efficient
- * - Only adding entries is supported ...
- * - Supports maximum number of entries,
- *     The first entry is removed if the new entry exceeds the max count.
- * - Does not allow duplicate strings
- *     This is not a good idea if the list is too long
- * - If entry exists it's moved to the end of the list..
- * 
- */
-
 #include "history.h"
 
 // ============================================================
@@ -30,24 +17,14 @@ struct _Whistory
    unsigned int max;
    char  * filename;
    int has_changed;
-   int save_if_changed;
-   GList * list;
-   GList * list_end;
-   GList * current;
+   StrList list;
 };
 
 static void _history_clear (HistoryFile * history)
 {
    // keep history->filename (destroyed in _history_free())
-   if (history->list)
-   {
-      //g_list_free_full (history->list, free);
-      GList * i;
-      for (i = history->list;  i;  i = i->next) {
-         free (i->data);
-      }
-      g_list_free (history->list);
-      history->list = NULL;
+   if (history->list.count) {
+      strlist_clear (&history->list);
       history->has_changed = 1;
    }
    history->index = 0;
@@ -58,6 +35,7 @@ static void _history_clear (HistoryFile * history)
 static void _history_free (HistoryFile * history)
 {
    _history_clear (history);
+   strlist_clear (&history->list);
    if (history->filename) {
       free (history->filename);
       history->filename = NULL;
@@ -71,11 +49,9 @@ static void _history_load_from_file (HistoryFile * history, const char * filenam
 {
    FILE *fp;
    char buf[1024];
-   char * p, * item;
+   char * p;
    size_t len;
-   unsigned int count = 0;
-   unsigned int max   = history->max;
-   GList * out_list = NULL;
+   unsigned int max = history->max;
 
    fp = fopen (filename, "r");
    if (!fp) {
@@ -93,44 +69,36 @@ static void _history_load_from_file (HistoryFile * history, const char * filenam
          continue;
       }
 
-      item = strdup (p);
-      len = strlen (buf);
-      item[len-1] = 0;
-      if (max > 0 && count >= max) {
-         free (item);
+      len = strlen (p);
+      if (len && p[len-1] == '\n') {
+         p[len-1] = 0;
+      }
+      if (max > 0 && history->list.count >= (int) max) {
          break;
       }
-      count++;
-      out_list = g_list_prepend (out_list, (gpointer) item);
+      strlist_add_copy (&history->list, p);
    }
 
-   if (out_list) {
-      history->list_end = out_list;
-      history->list     = out_list;
-      if (out_list->next) {
-         history->list  = g_list_reverse (out_list);
-      }
-      history->index    = 1;
+   history->count = history->list.count;
+   if (history->list.count) {
+      history->index = 1; // current = 1st item
    }
-
-   history->count   = count;
-   history->current = history->list; // current = 1st item
    fclose (fp);
    return;
 }
 
 
-void _history_write_to_file (HistoryFile * history, const char * filename)
+static void _history_write_to_file (HistoryFile * history, const char * filename)
 {
    FILE *fp;
+   int i;
+
    fp = fopen (filename, "w");
    if (!fp) {
       return;
    }
-   GList * i;
-   for (i = history->list;  i;  i = i->next)
-   {
-      fprintf (fp, "%s\n", (char *) (i->data));
+   for (i = 0; i < history->list.count; i++) {
+      fprintf (fp, "%s\n", history->list.items[i]);
    }
    fclose (fp);
    return;
@@ -144,7 +112,9 @@ void _history_write_to_file (HistoryFile * history, const char * filename)
 HistoryFile * history_new (const char * filename, unsigned int maxcount)
 {
    HistoryFile * history = calloc (1, sizeof (HistoryFile));
+   strlist_init (&history->list);
    history->max = maxcount;
+   history->index = 0;
    if (filename && *filename) {
       history->filename = strdup (filename);
       _history_load_from_file (history, filename);
@@ -158,7 +128,7 @@ void history_save (HistoryFile * history, int save_if_changed)
       if (save_if_changed) {
          if (history->has_changed) {
             _history_write_to_file (history, history->filename);
-         } // else printf ("not saving!!\n");
+         }
       } else {
          _history_write_to_file (history, history->filename);
       }
@@ -188,20 +158,18 @@ void history_reload (HistoryFile * history)
 
 void history_print (HistoryFile * history)
 {
+   int i;
    if (history) {
-      unsigned int count = 0;
-      GList * i;
-      for (i = history->list;  i;  i = i->next) {
-         count++;
-         printf ("[%d] %s\n", count, (char *) (i->data));
+      for (i = 0; i < history->list.count; i++) {
+         printf ("[%d] %s\n", i + 1, history->list.items[i]);
       }
       printf ("-- list internal count: [%d]\n", history->count);
-      if (history->list_end) {
-         printf ("** list     : %s\n", (char *) (history->list->data));
-         printf ("** list_end : %s\n", (char *) (history->list_end->data));
+      if (history->list.count) {
+         printf ("** list     : %s\n", history->list.items[0]);
+         printf ("** list_end : %s\n", history->list.items[history->list.count - 1]);
       }
-      if (history->current) {
-         printf ("** list current : %s\n", (char *) (history->current->data));
+      if (history->index > 0) {
+         printf ("** list current : %s\n", history->list.items[history->index - 1]);
       }
    }
 }
@@ -211,7 +179,6 @@ void history_print (HistoryFile * history)
 void history_unset_current (HistoryFile * history)
 {
    if (history) {
-      history->current = NULL;
       history->index = -1;
    }
 }
@@ -219,8 +186,10 @@ void history_unset_current (HistoryFile * history)
 
 const char * history_get_current (HistoryFile * history)
 {
-   if (history) return ((char*) (history->current->data));
-   else         return (NULL);
+   if (history && history->index > 0 && history->index <= history->list.count) {
+      return (history->list.items[history->index - 1]);
+   }
+   return (NULL);
 }
 
 
@@ -233,10 +202,9 @@ int history_get_current_index (HistoryFile * history)
 
 const char * history_next (HistoryFile * history)
 {
-   if (history->current && history->current->next) {
-      history->current = history->current->next;
+   if (history->index > 0 && history->index < history->list.count) {
       history->index++;
-      return ((char *) (history->current->data));
+      return (history->list.items[history->index - 1]);
    }
    return (NULL);
 }
@@ -244,10 +212,9 @@ const char * history_next (HistoryFile * history)
 
 const char * history_prev (HistoryFile * history)
 {
-   if (history->current && history->current->prev) {
-      history->current = history->current->prev;
+   if (history->index > 1) {
       history->index--;
-      return ((char *) (history->current->data));
+      return (history->list.items[history->index - 1]);
    }
    return (NULL);
 }
@@ -255,10 +222,9 @@ const char * history_prev (HistoryFile * history)
 
 const char * history_first (HistoryFile * history)
 {
-   if (history->list) {
-      history->current = history->list;
+   if (history->list.count) {
       history->index = 1;
-      return ((char *) (history->current->data));
+      return (history->list.items[0]);
    }
    return (NULL);
 }
@@ -266,10 +232,9 @@ const char * history_first (HistoryFile * history)
 
 const char * history_last (HistoryFile * history)
 {
-   if (history->list) {
-      history->current = history->list_end; // g_list_last (history->list);
-      return ((char *) (history->current->data));
-      history->index = history->count;
+   if (history->list.count) {
+      history->index = history->list.count;
+      return (history->list.items[history->index - 1]);
    }
    return (NULL);
 }
@@ -277,89 +242,65 @@ const char * history_last (HistoryFile * history)
 
 void history_append (HistoryFile * history, const char * text)
 {
+   int i;
+
    if (!text || !*text) {
       return;
    }
 
-   GList * i, * templist;
-   char * ientry;
    // if new entry = last entry, then abort
-   if (history->list_end) {
-      ientry = (char *) (history->list_end->data);
-      if (strcmp (text, ientry) == 0) {
-         return;
+   if (history->list.count
+       && strcmp (text, history->list.items[history->list.count - 1]) == 0) {
+      return;
+   }
+
+   // do not allow duplicate entries, remove existing entry
+   i = strlist_find (&history->list, text);
+   if (i >= 0) {
+      free (history->list.items[i]);
+      memmove (&history->list.items[i], &history->list.items[i+1],
+               (history->list.count - i - 1) * sizeof (char *));
+      history->list.count--;
+      history->count--;
+      if (history->index > i) {
+         history->index--;
       }
    }
-   // do not allow duplicate entries, remove existing entry
-   for (i = history->list;  i;  i = i->next)
-   {
-      char * ientry = (char *) (i->data);
-      if (strcmp (text, ientry) == 0)
-      {
-         // entry already exists.. remove
-         free (i->data);
-         templist = g_list_delete_link (history->list, i);
-         if (!templist->prev) { // no previous entry.. new start
-            history->list = templist;
-         }
-         if (!templist->next) { // no next... only 1 entry
-            history->list_end = templist;
-         }
-         history->count--;
-         break;
-      }
-      // TODO: handle 'current'
+
+   strlist_add_copy (&history->list, text);
+   history->count = history->list.count;
+   history->has_changed = 1;
+   if (history->index == 0) {
+      history->index = 1;
    }
 
    // if new entry exceeds the max count, first entry will be removed
-   unsigned int remove_first = 0;
-   if (history->max > 0
-       && history->count > 1
-       && history->count >= history->max) {
-      remove_first = 1;
-   }
-
-   if (history->count < history->max) {
-      history->count++;
-   }
-
-   // add new item
-   char * new_item = strdup (text);
-   GList * position = history->list_end ? history->list_end : history->list;
-   position = g_list_append (position, (gpointer) new_item);
-   history->has_changed = 1;
-   if (!history->list) {
-      history->list = position;         // first
-      history->current = history->list; // set current to first
-      history->index   = 1;
-   }
-
-   if (history->list_end) {
-      history->list_end = history->list_end->next;
-   } else {
-      history->list_end = history->list; // first element has just been added
-   }
-
-   if (remove_first && history->list->next) {
-      // problem when removing the first entry - current may become invalid
-      if (history->current == history->list) {
-         history->current = history->list->next;
+   if (history->max > 0 && history->list.count > (int) history->max) {
+      free (history->list.items[0]);
+      memmove (&history->list.items[0], &history->list.items[1],
+               (history->list.count - 1) * sizeof (char *));
+      history->list.count--;
+      history->count--;
+      if (history->index > 1) {
+         history->index--;
       }
-      free (history->list->data);
-      history->list = g_list_delete_link (history->list, history->list);
    }
 }
 
 
 void history_reverse (HistoryFile * history)
 {
-   if (history && history->list) {
-      GList * prev_first = history->list;
-      history->list = g_list_reverse (history->list);
-      history->list_end = prev_first;
-      if (history->current == prev_first) {
-         history->current = history->list;
+   int i, j;
+   char * tmp;
+
+   if (history && history->list.count) {
+      for (i = 0, j = history->list.count - 1; i < j; i++, j--) {
+         tmp = history->list.items[i];
+         history->list.items[i] = history->list.items[j];
+         history->list.items[j] = tmp;
+      }
+      if (history->index > 0) {
+         history->index = history->list.count - history->index + 1;
       }
    }
 }
-

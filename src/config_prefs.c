@@ -4,16 +4,9 @@
  * For more information, please refer to <https://unlicense.org>
  */
 
-/*
- * Read config file formatted like this:
- *
- * key1 = value1
- * key2=value2
- *
- * It's possible to open several files with the same config
- * The keys will be updated with thew new values.
- * 'key' is not case sensitive
- */
+#include <strings.h>
+
+#include <iup.h>
 
 #include "config_prefs.h"
 
@@ -23,9 +16,6 @@
 //                        PRIVATE
 // ============================================================
 
-static GList * PrefsGList = NULL;
-static GList * ExtensionGList = NULL;
-
 struct _pref_item
 {
    char * key;
@@ -33,6 +23,16 @@ struct _pref_item
 };
 typedef struct _pref_item pref_item;
 
+struct _pref_list
+{
+   pref_item ** items;
+   int count;
+   int size;
+};
+typedef struct _pref_list pref_list;
+
+static pref_list Prefs;
+static pref_list Extensions;
 
 static void pref_item_free (pref_item * item)
 {
@@ -43,74 +43,76 @@ static void pref_item_free (pref_item * item)
    }
 }
 
-static void pref_item_free_cb (gpointer data)
+static void pref_list_clear (pref_list * list)
 {
-   pref_item_free ((pref_item *) data);
+   int i;
+   for (i = 0; i < list->count; i++) {
+      pref_item_free (list->items[i]);
+   }
+   free (list->items);
+   list->items = NULL;
+   list->count = 0;
+   list->size  = 0;
 }
 
-
-static GList * config_find_key (GList * list, const char * key)
+static pref_item * config_find_key (pref_list * list, const char * key)
 {
-   GList *i;
-   pref_item * item;
+   int i;
 
    if (!key || !*key) { /* ignore empty keys (strings) */
       return (NULL);
    }
 
-   for (i = list; i; i = i->next)
-   {
-      item = (pref_item *) (i->data);
-      if (strcasecmp (key, item->key) == 0) {
-         return (i);
+   for (i = 0; i < list->count; i++) {
+      if (strcasecmp (key, list->items[i]->key) == 0) {
+         return (list->items[i]);
       }
    }
    return (NULL); /* key not found */
 }
 
 
-static void config_replace_key (GList ** list, pref_item * item)
+static void config_replace_key (pref_list * list, pref_item * item)
 {
-   GList * found = config_find_key (*list, item->key);
+   pref_item * found = config_find_key (list, item->key);
    if (found) {
       /* only update found item */
-      pref_item * found_item = (pref_item *) (found->data);
-      if (strcmp (found_item->value, item->value) == 0) {
+      if (strcmp (found->value, item->value) == 0) {
          pref_item_free (item);
          return; /* values are equal, nothing to update */
       }
-      free (found_item->value);
-      found_item->value = strdup (item->value);
+      free (found->value);
+      found->value = str_dup (item->value);
       pref_item_free (item);
    } else {
       /* append item */
-      *list = g_list_append (*list, (gpointer) item);
+      if (list->count == list->size) {
+         list->size = list->size ? list->size * 2 : 32;
+         list->items = (pref_item **) realloc (list->items, list->size * sizeof (pref_item *));
+      }
+      list->items[list->count++] = item;
    }
 }
 
 
 /** get value, it's always a string **/
-static char * config_get_item_value (GList * list, const char * key)
+static char * config_get_item_value (pref_list * list, const char * key)
 {
-   GList * ret;
-   pref_item * item;
-
-   ret = config_find_key (list, key);
-   if (ret) {
-      item = (pref_item *) (ret->data);
+   pref_item * item = config_find_key (list, key);
+   if (item) {
       return (item->value);
    }
    return (NULL); /* key not found */
 }
 
 
-static void config_load_from_file (const char * filename, GList ** out_list)
+static void config_load_from_file (const char * filename, pref_list * out_list)
 {
    FILE *fp;
    char buf[1024];
 
    char * stripped;
-   char ** keyvalue;
+   char * delim;
    pref_item * item;
 
    fp = fopen (filename, "r");
@@ -128,22 +130,21 @@ static void config_load_from_file (const char * filename, GList ** out_list)
       if (strlen (stripped) < 3 || *stripped == '#') {
          continue;
       }
-      if (!strchr (stripped, '=')) {
+      delim = strchr (stripped, '=');
+      if (!delim) {
          continue;
       }
 
+      *delim = 0;
       item = (pref_item *) calloc (1, sizeof (pref_item));
-      keyvalue = g_strsplit (stripped, "=", 2);
-      item->key   = g_strstrip (keyvalue[0]);
-      item->value = g_strstrip (keyvalue[1]);
+      item->key   = str_dup (str_strip (stripped));
+      item->value = str_dup (str_strip (delim + 1));
 
       if (!*item->key || !*item->value) {
-         g_strfreev (keyvalue);
-         free (item);
+         pref_item_free (item);
          continue;
       }
 
-      /// fprintf (stderr, "### %s = %s\n", key, value);
       /* Insert or replace item */
       config_replace_key (out_list, item);
     }
@@ -155,25 +156,31 @@ static void config_load_from_file (const char * filename, GList ** out_list)
 
 static void create_extension_handler_list (void)
 {
-   GList * i;
+   int i;
    pref_item * item, * item_out;
-   char ** str_vector;
+   char * extensions, * ext, * next;
 
-   for (i = PrefsGList; i; i = i->next)
+   for (i = 0; i < Prefs.count; i++)
    {
-      item = (pref_item *) (i->data);
+      item = Prefs.items[i];
       if (strncasecmp (item->key, "EXT:", 4) == 0)
       {
-         int w;
-         str_vector = g_strsplit (item->key + 4, ",", 0);
-         for (w = 0; str_vector[w]; w++)
+         extensions = str_dup (item->key + 4);
+         ext = extensions;
+         while (ext && *ext)
          {
+            next = strchr (ext, ',');
+            if (next) {
+               *next = 0;
+               next++;
+            }
             item_out = (pref_item *) calloc (1, sizeof (pref_item));
-            item_out->key   = strdup (str_vector[w]);
-            item_out->value = strdup (item->value);
-            config_replace_key (&ExtensionGList, item_out);
+            item_out->key   = str_dup (str_strip (ext));
+            item_out->value = str_dup (item->value);
+            config_replace_key (&Extensions, item_out);
+            ext = next;
          }
-         g_strfreev (str_vector);
+         free (extensions);
       }
    }
 }
@@ -200,25 +207,25 @@ static char * replace_variable (char * txt) /* config_get_string_expanded() */
    }
 
    if (txt[0] != '$' && txt[1] != '$') {
-      pre = strdup (txt);
+      pre = str_dup (txt);
       p2 = strchr (pre, '$');
-      if (p2) p2 = 0;
+      if (p2) *p2 = 0;
    }
 
-   variable = strdup (p + 2); // variable start
+   variable = str_dup (p + 2); // variable start
    p2 = strchr (variable, '}'); // variable end
    *p2 = 0;                     // `Terminal`
-   post = p2 + 1;               // ` -e ...`
+   post = strchr (p, '}') + 1;  // ` -e ...`
 
-   variable_value = config_get_item_value (PrefsGList, variable); // xterm
+   variable_value = config_get_item_value (&Prefs, variable); // xterm
 
    if (variable_value) {
       if (pre) {
          // pre xterm -e ...
-         new_text = g_strconcat (pre, variable_value, post, NULL);
+         new_text = str_concat (pre, variable_value, post, NULL);
       } else {
          // xterm -e ...
-         new_text = g_strconcat (variable_value, post, NULL);
+         new_text = str_concat (variable_value, post, NULL);
       }
    }
 
@@ -235,21 +242,29 @@ static char * replace_variable (char * txt) /* config_get_string_expanded() */
 
 void config_init ()
 {
-   if (PrefsGList) {
+   char config_file[1024];
+   char * dir;
+
+   if (Prefs.count) {
       return;
    }
 
-   char * config_file = g_build_filename ("/etc", APP_CONFIG_FILE, NULL);
-   config_load_from_file (config_file, &PrefsGList);
-   g_free (config_file);
+   snprintf (config_file, sizeof (config_file), "/etc/%s", APP_CONFIG_FILE);
+   config_load_from_file (config_file, &Prefs);
 
 #ifdef FOLLOW_XDG_SPEC
-   config_file = g_build_filename (g_get_user_config_dir(), APP_CONFIG_FILE, NULL);
+   dir = IupGetGlobal ("CONFIGDIR");
+   if (dir) {
+      snprintf (config_file, sizeof (config_file), "%s/%s", dir, APP_CONFIG_FILE);
+      config_load_from_file (config_file, &Prefs);
+   }
 #else
-   config_file = g_build_filename (g_get_home_dir(), "." APP_CONFIG_FILE, NULL);
+   dir = str_home_dir ();
+   if (dir) {
+      snprintf (config_file, sizeof (config_file), "%s/.%s", dir, APP_CONFIG_FILE);
+      config_load_from_file (config_file, &Prefs);
+   }
 #endif
-   config_load_from_file (config_file, &PrefsGList);
-   g_free (config_file);
 
    create_extension_handler_list ();
 }
@@ -257,12 +272,8 @@ void config_init ()
 
 void config_destroy ()
 {
-   if (PrefsGList) {
-      g_list_free_full (PrefsGList,     pref_item_free_cb);
-      g_list_free_full (ExtensionGList, pref_item_free_cb);
-      PrefsGList     = NULL;
-      ExtensionGList = NULL;
-   }
+   pref_list_clear (&Prefs);
+   pref_list_clear (&Extensions);
 }
 
 
@@ -275,41 +286,36 @@ void config_reload ()
 
 void config_print ()
 {
-   GList * i;
-   pref_item * item;
-   for (i = PrefsGList; i; i = i->next)
-   {
-      item = (pref_item *) (i->data);
-      printf ("%s = %s\n", item->key, item->value);
+   int i;
+   for (i = 0; i < Prefs.count; i++) {
+      printf ("%s = %s\n", Prefs.items[i]->key, Prefs.items[i]->value);
    }
-   for (i = ExtensionGList; i; i = i->next)
-   {
-      item = (pref_item *) (i->data);
-      printf ("%s = %s\n", item->key, item->value);
+   for (i = 0; i < Extensions.count; i++) {
+      printf ("%s = %s\n", Extensions.items[i]->key, Extensions.items[i]->value);
    }
 }
 
 
-gboolean config_get_int (const char * key, int * out_int)
+int config_get_int (const char * key, int * out_int)
 {
    char * value;
-   value = config_get_item_value (PrefsGList, key);
+   value = config_get_item_value (&Prefs, key);
    if (value) {
       *out_int = (int) strtoll (value, NULL, 0);
-      return TRUE;
+      return 1;
    } else {
       *out_int = -1;
-      return FALSE;
+      return 0;
    }
 }
 
 
-// returns a string that must be freed with g_free
-gboolean config_get_string_expanded (const char * key, char ** out_str)
+// returns a string that must be freed with free()
+int config_get_string_expanded (const char * key, char ** out_str)
 {
    char * value1, * value2, * value = NULL;
 
-   value1 = config_get_item_value (PrefsGList, key);
+   value1 = config_get_item_value (&Prefs, key);
    if (value1 && strstr (value1, "${")) {
       value2 = replace_variable (value1);
       value = value2;
@@ -319,29 +325,29 @@ gboolean config_get_string_expanded (const char * key, char ** out_str)
          free (value2);
       }
    } else if (value1) {
-      value = strdup (value1);
+      value = str_dup (value1);
    }
 
    if (value) {
       *out_str = value;
-      return TRUE;
+      return 1;
    } else {
       *out_str = NULL;
-      return FALSE;
+      return 0;
    }
 }
 
 
-gboolean config_get_string (const char * key, char ** out_str)
-   {
+int config_get_string (const char * key, char ** out_str)
+{
    char * value;
-   value = config_get_item_value (PrefsGList, key);
+   value = config_get_item_value (&Prefs, key);
    if (value) {
       *out_str = value;
-      return TRUE;
+      return 1;
    } else {
       *out_str = NULL;
-      return FALSE;
+      return 0;
    }
 }
 
@@ -352,6 +358,6 @@ char * config_get_handler_for_extension (const char * extension)
    if (extension && *extension == '.') {
       extension++; // .html -> html
    }
-   handler = config_get_item_value (ExtensionGList, extension);
+   handler = config_get_item_value (&Extensions, extension);
    return (handler);
 }

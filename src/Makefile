@@ -3,13 +3,13 @@ include ../config.mk
 
 APP  = gmrun
 # ls *.c | sed 's%\.c%.o%g' | tr '\n' ' ' >> Makefile
-OBJS = config_prefs.o gtkcompletionline.o history.o main.o
+OBJS = completion.o compline.o config_prefs.o history.o main.o util.o
 
 #CPPFLAGS += -I..
 CFLAGS += -I..
 
-CFLAGS += $(GTK_CFLAGS)
-LIBS   += $(GTK_LIBS)
+CFLAGS += $(IUP_CFLAGS)
+LIBS   += $(IUP_LIBS)
 
 all: $(APP)
 

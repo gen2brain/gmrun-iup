@@ -12,8 +12,7 @@ extern "C"
 {
 #endif
 
-#include "gtkcompat.h" // glib-compat.h
-#include <glib.h>
+#include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,13 +22,13 @@ void config_destroy ();
 void config_reload ();
 void config_print ();
 
-gboolean config_get_int (const char * key, int * out_int);
+int config_get_int (const char * key, int * out_int);
 
 /// changes string pointer (must not be freed)
-gboolean config_get_string (const char * key, char ** out_str);
+int config_get_string (const char * key, char ** out_str);
 
-/// allocates a string that must be freed with g_free
-gboolean config_get_string_expanded (const char * key, char ** out_str);
+/// allocates a string that must be freed with free()
+int config_get_string_expanded (const char * key, char ** out_str);
 
 /// returns a constant string (must not be freed)
 char * config_get_handler_for_extension (const char * extension);

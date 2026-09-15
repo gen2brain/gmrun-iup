@@ -1,0 +1,43 @@
+#!/bin/sh
+# This is free and unencumbered software released into the public domain.
+# For more information, please refer to <http://unlicense.org/>
+
+#=======================================
+w_new_option iup IUP
+#=======================================
+
+opt_print_iup()
+{
+	echo '  --with-iup-static       link the static IUP library'
+}
+
+opt_configure_iup()
+{
+	enable_iup_static=no
+
+	for i in $@
+	do
+		case $i in
+		--with-iup-static) enable_iup_static='yes' ;;
+		esac
+	done
+}
+
+opt_check_iup()
+{
+	if ! run_pkg_config iup --exists 2>/dev/null ; then
+		exit_error "pkg-config: iup was not found"
+	fi
+
+	IUP_CFLAGS=$(run_pkg_config iup --cflags 2>/dev/null)
+	if [ "$enable_iup_static" = "yes" ] ; then
+		IUP_LIBS=$(run_pkg_config iup --static --libs 2>/dev/null)
+	else
+		IUP_LIBS=$(run_pkg_config iup --libs 2>/dev/null)
+	fi
+
+	echo "checking for IUP... yes; version $(run_pkg_config iup --modversion 2>/dev/null)"
+
+	config_h_have="$config_h_have IUP"
+	config_mk_flags="$config_mk_flags IUP"
+}
